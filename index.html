@@ -11,9 +11,18 @@
     <body>
         <script src="js/three.js"></script>
         <script type="x-shader/x-vertex" id="vertexShader">
-            uniform float time;
 
             //NOISE
+            // copid from the github repo: https://github.com/ashima/webgl-noise/blob/master/src/noise3D.glsl
+            //
+            //      Author : Ian McEwan, Ashima Arts.
+            //  Maintainer : stegu
+            //     Lastmod : 20110822 (ijm)
+            //     License : Copyright (C) 2011 Ashima Arts. All rights reserved.
+            //               Distributed under the MIT License. See LICENSE file.
+            //               https://github.com/ashima/webgl-noise
+            //               https://github.com/stegu/webgl-noise
+            // 
             vec3 mod289(vec3 x) {
               return x - floor(x * (1.0 / 289.0)) * 289.0;
             }
@@ -106,6 +115,10 @@
                                             dot(p2,x2), dot(p3,x3) ) );
             }
 
+            // CURL NOISE
+            // from https://github.com/cabbibo/glsl-curl-noise/blob/master/curl.glsl
+
+            //used in curl noise to get the three uncorrelated noise functions needed for the potential
             vec3 snoiseVec3( vec3 x ){
 
               float s  = snoise(vec3( x ));
@@ -118,7 +131,7 @@
 
             vec3 curlNoise( vec3 p ){
               
-              const float e = .1;
+              const float e = .01;
               vec3 dx = vec3( e   , 0.0 , 0.0 );
               vec3 dy = vec3( 0.0 , e   , 0.0 );
               vec3 dz = vec3( 0.0 , 0.0 , e   );
@@ -140,25 +153,31 @@
 
             }
       
-            
-            varying float noise;
+            uniform float time;
+            varying vec3 v_normal;
+            varying vec3 v_pos;
+
 
             void main()
             {
-                vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = 2.0; //size of particles
-                vec4 pos = projectionMatrix * modelViewPosition;
-                //noise = snoise(vec3(pos)*5.0);
-                vec3 noise2 = curlNoise(vec3(pos));
+                gl_PointSize = 1.0; //size of particles
+                vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 
-                float x = gl_Position.x = pos.x + noise2.x*time;
-                float y = gl_Position.y = pos.y + noise2.y*time;
-                float z = gl_Position.z = pos.z + noise2.z*time;
+                vec3 noise2 = curlNoise(vec3(position*time*0.1));
+                v_normal = normal;
 
+                float x = position.x + noise2.x;
+                float y = position.y + noise2.y;
+                float z = position.z + noise2.z;
 
-                gl_Position = vec4(x,y,z,1.0);
-                //gl_Position = pos + noise*time;
+                pos.x = x;
+                pos.y = y;
+                pos.z = z;
 
+                //position = vec3(pos);
+                v_pos = vec3(pos);
+
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos);
             }
         </script>
 
@@ -238,87 +257,155 @@
 
             uniform float time;
             uniform vec2 u_resolution;
+            uniform vec3 lightPos; //should be part of the struct
 
-            varying float noise;
+            varying vec3 v_normal;
+            varying vec3 v_pos;
+
+           // #if NUM_DIR_LIGHTS > 0
+              struct DirectionalLight {
+                 vec3 direction;
+                 vec3 color;
+                 int shadow;
+                 float shadowBias;
+                 float shadowRadius;
+                 vec2 shadowMapSize;
+                };
+              uniform DirectionalLight directionalLights[ NUM_DIR_LIGHTS ];
+           // #endif
 
             void main()
             {
+                /*
+                float ka = 1.0; //ambient intensity
+                float kd = 0.6; //diffuse intensity
+                vec3 gray = vec3(0.5);
+                */
                 vec2 st = gl_FragCoord.xy/u_resolution; //normalize coordinates
-                float color = snoise(st)*0.5 + 0.5;
-                gl_FragColor = vec4(color, color, color, 1.0);
+                //float noise = (0.5*snoise(st*32.0)+0.25*snoise(st*64.0)+0.125*snoise(st*128.0))*0.5 + 0.5;
+                float noiseSum = 0.0;
+                const float octaves = 6.0; //number of octaves
+                float alpha = 2.0; // division factor
+                float beta = 5.0; // a high beta means the noise will start at a higher frequency
+
+                // calculate the fractal sum of noise using the variables declared above;
+                for(float i = 1.0; i < octaves; i++)
+                {
+                  noiseSum += (1.0/pow(alpha, i) * snoise(st * pow(alpha, i + beta))); 
+                }
+
+                noiseSum = noiseSum * 0.5 + 0.5;
+                /*
+                vec3 lightDirection = normalize(v_pos - lightPos);
+                vec3 diffuse = kd * vec3(noise) *directionalLights[0].color * max(0.0, dot(lightDirection, normalize(v_normal)));
+                vec3 ambient = ka * vec3(noise);
+                vec3 finalcolor = ambient + diffuse;*/
+                gl_FragColor = vec4(vec3(noiseSum), 1.0);
             }
         </script>
         <script>
             var scene, camera, renderer;
+            var clock = new THREE.Clock(true)
 
 
             scene = new THREE.Scene();
 
             //CAMERA
             camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
-            camera.position.z = 10;  //adjust camera position, pos z axis is pointing out from the screen
-            camera.position.y = 2;
+            camera.position.z = 3;  //adjust camera position, pos z axis is pointing out from the screen
+            //camera.position.y = 2;
+
 
             //RENDERER
             renderer = new THREE.WebGLRenderer(); //use webGL renderer
             renderer.setSize( window.innerWidth, window.innerHeight );
             document.body.appendChild( renderer.domElement );
 
-            //MATERIAL
-            var uniforms = {
-              time: {
-                value: 1.0,
-              },
-              u_resolution: {
-                  type: "v2", 
-                  value: new THREE.Vector2( window.innerWidth, window.innerHeight )  
-              }
-            };
-            var material = new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: document.getElementById('vertexShader').textContent,
-                fragmentShader: document.getElementById('fragmentShader').textContent,
-            });
-
+            // var uniforms = {
+            //   time: {
+            //     value: 1.0,
+            //   },
+            //   u_resolution: {
+            //       type: "v2", 
+            //       value: new THREE.Vector2( window.innerWidth, window.innerHeight )  
+            //   }
+            // };
+          
             //particle system variables
-            var particleCount = 500000;
+            var particleCount = 100000;
              
             // Particles are just individual vertices in a geometry
             // Create the geometry that will hold all of the vertices
             var particles = new THREE.Geometry();
          
+
             // Create the vertices and add them to the particles geometry
             for (var p = 0; p < particleCount; p++) {
              
-                var x = Math.random() * 10 - 5;
-                var y = Math.random() * 10 - 5;
-                var z = Math.random() * 10 - 5;
+                var x = Math.random() * 4 - 2;
+                var y = Math.random() * 4 - 2;
+                var z = Math.random() * 4 - 2;
                        
-                // Create the vertex
+                // one particle is represented by one vertice
                 var particle = new THREE.Vector3(x, y, z);
                  
                 // Add the vertex to the geometry
                 particles.vertices.push(particle);
             }
-         
+
+            particles.dynamic = true;
+
+            // Create light
+            var light = new THREE.DirectionalLight(0xffffff);
+            light.position.set(0.0,0.0,5.0);
+            scene.add(light);
+
+
+            var material = new THREE.ShaderMaterial({
+                uniforms: THREE.UniformsUtils.merge([
+                    THREE.UniformsLib['ambient'],
+                    THREE.UniformsLib['lights'],
+                    {
+                        time: {type: 'f', value: 1.0},
+                        u_resolution: {type: 'v2', value: new THREE.Vector2( window.innerWidth, window.innerHeight )},
+                        lightPos: {type: 'v3', value: light.position}  
+                    }
+                ]),
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                lights : true
+            });
+
+                     
             // Create the particle system
             particleSystem = new THREE.Points(particles, material);
 
             // add it to the scene
             scene.add(particleSystem);
             
-            
-            
-            function update() {
-                requestAnimationFrame( update );
+            material.needsUpdate = true;
 
-                uniforms.time.value += 0.01667;
-                
-                renderer.render( scene, camera );
 
-                
+            function render()
+            {
+              particleSystem.rotation.y += 0.01;
+
+              //particleSystem.geometry.verticesNeedUpdate = true; 
+
+
+              material.uniforms.time.value += clock.getDelta(); //update uniform time variable in shaders  
+
+              renderer.render( scene, camera );
             }
-            update();
+
+            function animate()
+            {
+              requestAnimationFrame(animate);
+              render();
+            }
+
+            animate();
+
         </script>
     </body>
 </html>
