@@ -294,7 +294,7 @@
                   noiseSum += (1.0/pow(alpha, i) * snoise(st * pow(alpha, i + beta))); 
                 }
 
-                noiseSum = noiseSum * 0.5 + 0.5;
+                noiseSum = noiseSum * 0.5 + 0.5; //make sure noise is in the range of 0 to 1
                 /*
                 vec3 lightDirection = normalize(v_pos - lightPos);
                 vec3 diffuse = kd * vec3(noise) *directionalLights[0].color * max(0.0, dot(lightDirection, normalize(v_normal)));
@@ -312,7 +312,7 @@
 
             //CAMERA
             camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
-            camera.position.z = 3;  //adjust camera position, pos z axis is pointing out from the screen
+            camera.position.z = 5;  //adjust camera position, pos z axis is pointing out from the screen
             //camera.position.y = 2;
 
 
@@ -332,7 +332,7 @@
             // };
           
             //particle system variables
-            var particleCount = 100000;
+            var particleCount = 20000;
              
             // Particles are just individual vertices in a geometry
             // Create the geometry that will hold all of the vertices
